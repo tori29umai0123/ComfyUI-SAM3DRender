@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Gaussian Splatting Render</title>
+<link rel="stylesheet" href="/extensions/ComfyUI-SAM3DRender/editor/static/style.css?v=32" />
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+
+<!-- Top-left toolbar — range-select for crop capture. -->
+<div id="left-toolbars">
+  <div id="select-toolbar">
+    <button id="select-toggle-btn" type="button">撮影範囲指定</button>
+    <button id="select-reset-btn" type="button" hidden>reset</button>
+  </div>
+</div>
+
+<!-- Top-right confirm bar -->
+<div id="confirm-bar">
+  <span id="status-text" class="muted">loading…</span>
+  <button id="confirm-and-close-btn" type="button" title="Ctrl+Enter">
+    Confirm &amp; Close / 確定して閉じる
+  </button>
+</div>
+
+<!-- Right-side camera-control panel. Bidirectionally synced with viewMatrix —
+     dragging / WASD / wheel update the sliders, and slider input rewrites
+     viewMatrix. The axis dropdown selects which world axis acts as "up"
+     for orbit-drag (default Y-up; pick -Y up for SAM3D / OpenCV-camera
+     PLYs where +Y points down). -->
+<div id="camera-panel">
+  <details open>
+    <summary>カメラ / Camera</summary>
+
+    <div class="cam-row">
+      <label for="cam-axis-select">軸</label>
+      <select id="cam-axis-select">
+        <option value="y-up">Y up</option>
+        <option value="-y-up">-Y up (OpenCV / SAM3D)</option>
+        <option value="z-up">Z up</option>
+        <option value="-z-up">-Z up</option>
+      </select>
+    </div>
+
+    <div class="cam-section-title">回転 / Rotation (deg)</div>
+    <div class="cam-row">
+      <label>X</label>
+      <input type="range"  id="cam-rot-x"     min="-180" max="180" step="1" value="0" />
+      <input type="number" id="cam-rot-x-num" min="-180" max="180" step="1" value="0" />
+    </div>
+    <div class="cam-row">
+      <label>Y</label>
+      <input type="range"  id="cam-rot-y"     min="-180" max="180" step="1" value="0" />
+      <input type="number" id="cam-rot-y-num" min="-180" max="180" step="1" value="0" />
+    </div>
+    <div class="cam-row">
+      <label>Z</label>
+      <input type="range"  id="cam-rot-z"     min="-180" max="180" step="1" value="0" />
+      <input type="number" id="cam-rot-z-num" min="-180" max="180" step="1" value="0" />
+    </div>
+
+    <div class="cam-section-title">位置 / Position</div>
+    <div class="cam-row">
+      <label>X</label>
+      <input type="range"  id="cam-pos-x"     min="-50" max="50" step="0.05" value="0" />
+      <input type="number" id="cam-pos-x-num" step="0.05" value="0" />
+    </div>
+    <div class="cam-row">
+      <label>Y</label>
+      <input type="range"  id="cam-pos-y"     min="-50" max="50" step="0.05" value="0" />
+      <input type="number" id="cam-pos-y-num" step="0.05" value="0" />
+    </div>
+    <div class="cam-row">
+      <label>Z</label>
+      <input type="range"  id="cam-pos-z"     min="-50" max="50" step="0.05" value="0" />
+      <input type="number" id="cam-pos-z-num" step="0.05" value="0" />
+    </div>
+
+    <button id="cam-reset-btn" type="button">Reset (R)</button>
+    <button id="cam-flip-btn"  type="button" title="シーン中心まわりにカメラを 180° オービット">
+      対角の向こう側 / Flip 180°
+    </button>
+  </details>
+
+  <details>
+    <summary>視野角 / FoV</summary>
+    <div class="cam-row">
+      <label>°</label>
+      <input type="range"  id="cam-fov"     min="15" max="120" step="1"   value="50" />
+      <input type="number" id="cam-fov-num" min="5"  max="170" step="0.1" value="50" />
+    </div>
+    <button id="cam-fov-reset-btn" type="button">Reset (= 50°)</button>
+  </details>
+
+  <details>
+    <summary>ガウシアン / Splat Size</summary>
+    <div class="cam-row">
+      <label>×</label>
+      <input type="range"  id="splat-scale"     min="0.1" max="5" step="0.05" value="1" />
+      <input type="number" id="splat-scale-num" min="0.01" max="20" step="0.05" value="1" />
+    </div>
+    <button id="splat-scale-reset-btn" type="button">Reset (= 1.0)</button>
+  </details>
+
+  <details>
+    <summary>近距離クリップ / Near Clip</summary>
+    <div class="cam-row">
+      <label>d</label>
+      <input type="range"  id="near-clip"     min="0" max="3"  step="0.005" value="0" />
+      <input type="number" id="near-clip-num" min="0" max="50" step="0.001" value="0" />
+    </div>
+    <button id="near-clip-reset-btn" type="button">Reset (= 0)</button>
+  </details>
+</div>
+
+<!-- Bottom-left help -->
+<div id="help-panel">
+  <details>
+    <summary>操作方法 / Controls</summary>
+    <div class="help-body">
+<strong>視点</strong><br />
+左ドラッグ: その場で回転 (左右=横回転 / 上下=縦回転、軸固定)<br />
+右ドラッグ: 傾き (roll、左右で時計/反時計)<br />
+中ドラッグ: 平行移動<br />
+ホイール: ズーム<br />
+<br />
+<strong>移動 (Fly camera)</strong><br />
+W A S D: 前後左右<br />
+Space / Q: 上 / E / X: 下<br />
+Shift: ダッシュ (3×) / Ctrl: 微速 (0.3×)<br />
+矢印キー: 微回転<br />
+R: カメラリセット<br />
+<br />
+<strong>撮影</strong><br />
+撮影範囲指定 ON 中: ドラッグで赤枠を指定<br />
+reset で枠解除 / 範囲指定を終了 で枠を確定<br />
+Confirm &amp; Close で範囲をキャプチャ
+    </div>
+  </details>
+</div>
+
+<!-- Crop overlay rendered in selection mode -->
+<div id="crop-overlay" hidden>
+  <div id="crop-mask-top"    class="crop-mask"></div>
+  <div id="crop-mask-bottom" class="crop-mask"></div>
+  <div id="crop-mask-left"   class="crop-mask"></div>
+  <div id="crop-mask-right"  class="crop-mask"></div>
+  <div id="crop-rect"></div>
+</div>
+
+<!-- Loading spinner / progress -->
+<div id="progress" hidden></div>
+<div id="message" hidden></div>
+
+<script>
+  // Pulled from the URL into globals so main.js can read them on boot.
+  (function () {
+    const params = new URLSearchParams(location.search);
+    window.GS_NODE_ID    = params.get("node_id") || "";
+    window.GS_PLY_PATH   = params.get("ply") || "";
+    // Saved camera state (JSON string) — main.js parses it after the
+    // viewMatrix / axis defaults are set up so reopening the modal lands
+    // back at the user's last framing.
+    window.GS_VIEW_STATE = params.get("view_state") || "";
+  })();
+</script>
+<script src="/extensions/ComfyUI-SAM3DRender/editor/static/main.js?v=32"></script>
+</body>
+</html>

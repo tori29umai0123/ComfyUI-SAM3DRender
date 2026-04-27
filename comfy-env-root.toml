@@ -1,0 +1,6 @@
+# Root manifest for ComfyUI-SAM3DRender. The actual heavy environment
+# lives in nodes/sam3d/comfy-env.toml (auto-generated per platform by
+# _env_config.py); this file just exists so comfy-env's install() finds
+# a root config and then walks subdirectories to build the isolated env.
+
+[node_reqs]

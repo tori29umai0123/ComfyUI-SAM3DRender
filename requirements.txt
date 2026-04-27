@@ -1,0 +1,11 @@
+# ComfyUI-SAM3DRender — runtime requirements.
+
+# Process / env management for the SAM3D nodes (Load SAM3D Model,
+# SAM3D Gaussian Splatting). comfy-env reads nodes/comfy-env.toml and
+# installs any missing pip dependencies on startup.
+comfy-env==0.1.75
+comfy-3d-viewers==0.2.33
+
+# Core (also redeclared in comfy-env.toml)
+numpy>=1.21.0,<2.0.0
+pillow>=9.0.0

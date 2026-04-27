@@ -1,0 +1,10 @@
+[project]
+name = "ComfyUI-SAM3DRender"
+description = "Interactive WebGL Gaussian Splatting viewer for ComfyUI. Open a modal on any .ply file (3DGS gaussians or colored point clouds — including ASCII PLY output from comfyui-sam3dobjects), frame the shot, and capture an image. Pairs with SAM3D pipelines."
+version = "0.3.0"
+license = {text = "MIT"}
+
+[tool.comfy]
+PublisherId = "tori29umai"
+DisplayName = "SAM3DRender"
+Icon = ""

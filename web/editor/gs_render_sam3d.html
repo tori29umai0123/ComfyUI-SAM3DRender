@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Gaussian Splatting Render (SAM3D)</title>
+<link rel="stylesheet" href="/extensions/ComfyUI-SAM3DRender/editor/static/style.css?v=32" />
+<style>
+  /* Stack the SAM3D-specific buttons together with the existing
+     range-select toggle so the toolbar reads top-to-bottom:
+     [画像を読み込む] / [撮影範囲指定] / [ply保存]. */
+  #select-toolbar { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+  #select-toolbar > button { white-space: nowrap; }
+  #sam3d-load-btn[disabled], #sam3d-save-ply-btn[disabled] {
+    opacity: 0.55; cursor: progress;
+  }
+  #sam3d-toast {
+    position: fixed; left: 50%; top: 12px; transform: translateX(-50%);
+    background: rgba(20,20,20,0.85); color: #f4f4f4;
+    padding: 8px 14px; border-radius: 6px;
+    font: 13px/1.4 sans-serif; z-index: 100;
+    pointer-events: none; transition: opacity 0.25s;
+  }
+  #sam3d-toast[hidden] { opacity: 0; }
+</style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+
+<!-- Top-left toolbar — SAM3D variant adds image-upload and ply-save
+     buttons around the original 撮影範囲指定 toggle. -->
+<div id="left-toolbars">
+  <div id="select-toolbar">
+    <button id="sam3d-load-btn" type="button">画像を読み込む</button>
+    <button id="select-toggle-btn" type="button">撮影範囲指定</button>
+    <button id="select-reset-btn" type="button" hidden>reset</button>
+    <button id="sam3d-save-ply-btn" type="button" disabled>ply保存</button>
+  </div>
+</div>
+
+<!-- Hidden file input wired to the 画像を読み込む button. -->
+<input id="sam3d-file-input" type="file"
+       accept="image/png,image/jpeg,image/webp,image/bmp" hidden />
+
+<!-- Top-right confirm bar -->
+<div id="confirm-bar">
+  <span id="status-text" class="muted">画像を読み込んでください</span>
+  <button id="confirm-and-close-btn" type="button" title="Ctrl+Enter">
+    Confirm &amp; Close / 確定して閉じる
+  </button>
+</div>
+
+<!-- Right-side camera-control panel — identical to the vanilla viewer. -->
+<div id="camera-panel">
+  <details open>
+    <summary>カメラ / Camera</summary>
+
+    <div class="cam-row">
+      <label for="cam-axis-select">軸</label>
+      <select id="cam-axis-select">
+        <option value="y-up">Y up</option>
+        <option value="-y-up" selected>-Y up (OpenCV / SAM3D)</option>
+        <option value="z-up">Z up</option>
+        <option value="-z-up">-Z up</option>
+      </select>
+    </div>
+
+    <div class="cam-section-title">回転 / Rotation (deg)</div>
+    <div class="cam-row">
+      <label>X</label>
+      <input type="range"  id="cam-rot-x"     min="-180" max="180" step="1" value="0" />
+      <input type="number" id="cam-rot-x-num" min="-180" max="180" step="1" value="0" />
+    </div>
+    <div class="cam-row">
+      <label>Y</label>
+      <input type="range"  id="cam-rot-y"     min="-180" max="180" step="1" value="0" />
+      <input type="number" id="cam-rot-y-num" min="-180" max="180" step="1" value="0" />
+    </div>
+    <div class="cam-row">
+      <label>Z</label>
+      <input type="range"  id="cam-rot-z"     min="-180" max="180" step="1" value="0" />
+      <input type="number" id="cam-rot-z-num" min="-180" max="180" step="1" value="0" />
+    </div>
+
+    <div class="cam-section-title">位置 / Position</div>
+    <div class="cam-row">
+      <label>X</label>
+      <input type="range"  id="cam-pos-x"     min="-50" max="50" step="0.05" value="0" />
+      <input type="number" id="cam-pos-x-num" step="0.05" value="0" />
+    </div>
+    <div class="cam-row">
+      <label>Y</label>
+      <input type="range"  id="cam-pos-y"     min="-50" max="50" step="0.05" value="0" />
+      <input type="number" id="cam-pos-y-num" step="0.05" value="0" />
+    </div>
+    <div class="cam-row">
+      <label>Z</label>
+      <input type="range"  id="cam-pos-z"     min="-50" max="50" step="0.05" value="0" />
+      <input type="number" id="cam-pos-z-num" step="0.05" value="0" />
+    </div>
+
+    <button id="cam-reset-btn" type="button">Reset (R)</button>
+    <button id="cam-flip-btn"  type="button" title="シーン中心まわりにカメラを 180° オービット">
+      対角の向こう側 / Flip 180°
+    </button>
+  </details>
+
+  <details>
+    <summary>視野角 / FoV</summary>
+    <div class="cam-row">
+      <label>°</label>
+      <input type="range"  id="cam-fov"     min="15" max="120" step="1"   value="50" />
+      <input type="number" id="cam-fov-num" min="5"  max="170" step="0.1" value="50" />
+    </div>
+    <button id="cam-fov-reset-btn" type="button">Reset (= 50°)</button>
+  </details>
+
+  <details>
+    <summary>ガウシアン / Splat Size</summary>
+    <div class="cam-row">
+      <label>×</label>
+      <input type="range"  id="splat-scale"     min="0.1" max="5" step="0.05" value="1" />
+      <input type="number" id="splat-scale-num" min="0.01" max="20" step="0.05" value="1" />
+    </div>
+    <button id="splat-scale-reset-btn" type="button">Reset (= 1.0)</button>
+  </details>
+
+  <details>
+    <summary>近距離クリップ / Near Clip</summary>
+    <div class="cam-row">
+      <label>d</label>
+      <input type="range"  id="near-clip"     min="0" max="3"  step="0.005" value="0" />
+      <input type="number" id="near-clip-num" min="0" max="50" step="0.001" value="0" />
+    </div>
+    <button id="near-clip-reset-btn" type="button">Reset (= 0)</button>
+  </details>
+</div>
+
+<!-- Bottom-left help -->
+<div id="help-panel">
+  <details>
+    <summary>操作方法 / Controls</summary>
+    <div class="help-body">
+<strong>SAM3D 操作</strong><br />
+画像を読み込む: 元画像を選択すると SAM3D で点群を生成<br />
+ply保存: 生成された .ply をブラウザでダウンロード<br />
+<br />
+<strong>視点</strong><br />
+左ドラッグ: その場で回転 (左右=横回転 / 上下=縦回転、軸固定)<br />
+右ドラッグ: 傾き (roll、左右で時計/反時計)<br />
+中ドラッグ: 平行移動<br />
+ホイール: ズーム<br />
+<br />
+<strong>移動 (Fly camera)</strong><br />
+W A S D: 前後左右<br />
+Space / Q: 上 / E / X: 下<br />
+Shift: ダッシュ (3×) / Ctrl: 微速 (0.3×)<br />
+矢印キー: 微回転<br />
+R: カメラリセット<br />
+<br />
+<strong>撮影</strong><br />
+撮影範囲指定 ON 中: ドラッグで赤枠を指定<br />
+reset で枠解除 / 範囲指定を終了 で枠を確定<br />
+Confirm &amp; Close で範囲をキャプチャ
+    </div>
+  </details>
+</div>
+
+<!-- Crop overlay rendered in selection mode -->
+<div id="crop-overlay" hidden>
+  <div id="crop-mask-top"    class="crop-mask"></div>
+  <div id="crop-mask-bottom" class="crop-mask"></div>
+  <div id="crop-mask-left"   class="crop-mask"></div>
+  <div id="crop-mask-right"  class="crop-mask"></div>
+  <div id="crop-rect"></div>
+</div>
+
+<!-- Loading spinner / progress + transient toast -->
+<div id="progress" hidden></div>
+<div id="message" hidden></div>
+<div id="sam3d-toast" hidden></div>
+
+<script>
+  // Pulled from the URL into globals so main.js can read them on boot.
+  // SAM3D mode skips the boot-time PLY fetch and waits for the user to
+  // upload an image; the confirm postMessage type is also flipped so
+  // the SAM3D widget filters cleanly.
+  (function () {
+    const params = new URLSearchParams(location.search);
+    window.GS_NODE_ID    = params.get("node_id") || "";
+    window.GS_PLY_PATH   = "";                 // start without a PLY
+    window.GS_VIEW_STATE = params.get("view_state") || "";
+    window.GS_SAM3D_MODE = true;
+    window.GS_CONFIRM_TYPE = "gs-render-sam3d-confirmed";
+  })();
+</script>
+<script src="/extensions/ComfyUI-SAM3DRender/editor/static/main.js?v=32"></script>
+
+<script>
+// SAM3D viewer glue — wires the two new buttons.
+//
+// Pipeline:
+//   [画像を読み込む] → POST image to /gs_render/sam3d_generate
+//                   ← server runs SAM3D, deletes its temp file, returns
+//                     a *dual* response body (Content-Type
+//                     application/x-sam3d-dual-ply):
+//                        [4B BE uint32: ascii_size]
+//                        [ascii_size bytes: original ASCII point cloud]
+//                        [remainder: binary 3DGS PLY for WebGL render]
+//   → keep the ASCII slice for 「ply保存」, ship the binary slice to the
+//     viewer worker via gsLoadPlyFromBuffer (worker takes ownership)
+//   [ply保存]      → Blob from the saved ASCII → a[download].click()
+//
+// Cache: on successful generate we store {ascii, binary, suggestedName}
+// in the parent ComfyUI window's `gsSam3dPlyCache` Map (keyed by node
+// id, set up by the widget script). Reopening the modal restores the
+// previous PLY immediately — no re-upload, no MoGe call. Cache lives
+// for the lifetime of the ComfyUI page; lost on full reload, which is
+// the intended scope ("session cache").
+//
+// Nothing is persisted on the server; the browser is the sole holder of
+// the PLY data once /gs_render/sam3d_generate has returned.
+(function () {
+  "use strict";
+
+  const loadBtn   = document.getElementById("sam3d-load-btn");
+  const fileInput = document.getElementById("sam3d-file-input");
+  const saveBtn   = document.getElementById("sam3d-save-ply-btn");
+  const statusEl  = document.getElementById("status-text");
+  const toastEl   = document.getElementById("sam3d-toast");
+
+  // In-memory PLY held by the iframe. Refreshed each time the user picks
+  // a new image; restored from the parent-window cache on iframe boot.
+  let plyBytes = null;          // ASCII ArrayBuffer kept for 「ply保存」
+  let plySuggestedName = "pointcloud.ply";
+
+  // Parent-window cache helpers. Same-origin iframe → direct property
+  // access works. We must always hand fresh slice() copies to the worker
+  // because postMessage transfers ownership of the binary buffer.
+  function _parentCache() {
+    try {
+      return window.parent && window.parent.gsSam3dPlyCache;
+    } catch (_e) {
+      return null; // cross-origin guard; shouldn't happen in our setup
+    }
+  }
+  function readCache() {
+    const c = _parentCache();
+    if (!c || !window.GS_NODE_ID) return null;
+    return c.get(String(window.GS_NODE_ID)) || null;
+  }
+  function writeCache(record) {
+    const c = _parentCache();
+    if (!c || !window.GS_NODE_ID) return;
+    c.set(String(window.GS_NODE_ID), record);
+  }
+
+  let toastTimer = 0;
+  function toast(text, ms = 1800) {
+    if (!toastEl) return;
+    toastEl.textContent = text;
+    toastEl.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toastEl.hidden = true; }, ms);
+  }
+
+  // ---------- Restore from cache on iframe boot ----------
+  // Run after main.js has had a chance to expose gsLoadPlyFromBuffer.
+  // The viewer's main() boots asynchronously (shaders + worker setup),
+  // so we wait for the symbol before pushing the cached buffer.
+  (async function tryRestoreCache() {
+    const cached = readCache();
+    if (!cached) return;
+    // Wait for main.js to finish booting (gsLoadPlyFromBuffer appears).
+    for (let i = 0; i < 50 && typeof window.gsLoadPlyFromBuffer !== "function"; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    if (typeof window.gsLoadPlyFromBuffer !== "function") return;
+
+    plyBytes = cached.ascii;        // ASCII unchanged (never transferred)
+    plySuggestedName = cached.suggestedName || plySuggestedName;
+    // Hand a fresh copy to the worker — slice() returns a new buffer
+    // independent of the cached one, so the cache survives transfer.
+    window.gsLoadPlyFromBuffer(cached.binary.slice(0));
+    saveBtn.disabled = false;
+    toast("前回の点群を復元しました", 1400);
+  })();
+
+  loadBtn.addEventListener("click", () => fileInput.click());
+
+  fileInput.addEventListener("change", async () => {
+    const f = fileInput.files?.[0];
+    if (!f) return;
+    fileInput.value = ""; // allow re-selecting the same file later
+
+    loadBtn.disabled = true;
+    saveBtn.disabled = true;
+    if (statusEl) statusEl.textContent = "SAM3D で点群を生成中…";
+    toast("SAM3D を実行中…", 60000);
+
+    try {
+      const fd = new FormData();
+      fd.append("image", f, f.name || "upload.png");
+      const resp = await fetch("/gs_render/sam3d_generate", {
+        method: "POST",
+        body: fd,
+      });
+      if (!resp.ok) {
+        const ct = resp.headers.get("content-type") || "";
+        let msg = "(no body)";
+        try {
+          if (ct.includes("application/json")) {
+            const j = await resp.json();
+            msg = j.error || JSON.stringify(j);
+          } else {
+            msg = await resp.text();
+          }
+        } catch (_e) { /* best effort */ }
+        throw new Error(`server error (${resp.status}): ${msg}`);
+      }
+      const buf = await resp.arrayBuffer();
+      if (!buf.byteLength) throw new Error("empty PLY response");
+
+      // Split the dual-PLY layout: [4B BE size][ascii][binary].
+      // We decline the legacy single-PLY shape (no Content-Type marker)
+      // for safety — older server versions wouldn't render anyway.
+      const ct = resp.headers.get("content-type") || "";
+      let asciiBuf, binaryBuf;
+      if (ct.includes("application/x-sam3d-dual-ply")) {
+        if (buf.byteLength < 4) throw new Error("response too short");
+        const view = new DataView(buf);
+        const asciiSize = view.getUint32(0, false);  // big-endian
+        if (asciiSize < 0 || 4 + asciiSize > buf.byteLength) {
+          throw new Error(`bad dual-PLY header (ascii_size=${asciiSize})`);
+        }
+        asciiBuf  = buf.slice(4, 4 + asciiSize);
+        binaryBuf = buf.slice(4 + asciiSize);
+      } else {
+        // Single-PLY fallback (shouldn't happen with current server).
+        asciiBuf  = buf;
+        binaryBuf = buf.slice(0);
+      }
+
+      // Suggested filename for the save button: prefer the server hint,
+      // fall back to the uploaded image stem.
+      const hinted = resp.headers.get("X-SAM3D-Suggested-Filename");
+      if (hinted) {
+        plySuggestedName = hinted;
+      } else {
+        const stem = (f.name || "pointcloud").replace(/\.[^.]+$/, "");
+        plySuggestedName = `${stem}.ply`;
+      }
+
+      // Keep the ASCII copy for 「ply保存」 (smallest, most portable),
+      // ship the binary copy to the viewer worker (which only handles
+      // binary 3DGS PLY). Worker postMessage transfers ownership, so
+      // we cache an independent slice() of the binary for the next
+      // modal reopen — otherwise the cached buffer would be detached.
+      plyBytes = asciiBuf;
+      writeCache({
+        ascii: asciiBuf,           // never transferred; safe to share
+        binary: binaryBuf.slice(0),// independent copy for future reopens
+        suggestedName: plySuggestedName,
+      });
+      window.gsLoadPlyFromBuffer(binaryBuf);
+      saveBtn.disabled = false;
+      toast("生成完了", 1400);
+    } catch (exc) {
+      console.error(exc);
+      if (statusEl) statusEl.textContent = "error";
+      toast("失敗: " + (exc.message || exc), 4500);
+    } finally {
+      loadBtn.disabled = false;
+    }
+  });
+
+  saveBtn.addEventListener("click", () => {
+    if (!plyBytes || !plyBytes.byteLength) {
+      toast("先に画像を読み込んでください", 2200);
+      return;
+    }
+    const blob = new Blob([plyBytes], { type: "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = plySuggestedName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Defer revocation so the browser has time to start the download.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  });
+})();
+</script>
+</body>
+</html>

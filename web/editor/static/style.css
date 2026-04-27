@@ -1,0 +1,228 @@
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background: #000;
+    color: #eee;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    text-shadow: 0 0 3px rgba(0,0,0,0.8);
+}
+
+#canvas {
+    display: block;
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+    cursor: grab;
+}
+#canvas.dragging { cursor: grabbing; }
+#canvas.selecting { cursor: crosshair; }
+
+/* ---------- Toolbars ---------- */
+
+#left-toolbars {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+#select-toolbar {
+    display: flex;
+    gap: 8px;
+}
+
+/* ---------- Camera panel ---------- */
+
+#camera-panel {
+    position: absolute;
+    top: 60px;
+    right: 12px;
+    z-index: 10;
+    width: 280px;
+    color: #ddd;
+    font-size: 12px;
+}
+#camera-panel details {
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid #444;
+    border-radius: 6px;
+    padding: 6px 10px;
+}
+#camera-panel summary {
+    cursor: pointer;
+    user-select: none;
+    font-weight: 600;
+    padding: 2px 0;
+}
+
+.cam-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 4px 0;
+}
+.cam-row > label {
+    width: 18px;
+    text-align: right;
+    color: #aaa;
+    flex: 0 0 auto;
+}
+.cam-row > input[type="range"] {
+    flex: 1;
+    min-width: 0;
+}
+.cam-row > input[type="number"] {
+    width: 60px;
+    background: #2a2a2a;
+    color: #eee;
+    border: 1px solid #555;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: 12px;
+    text-align: right;
+    text-shadow: none;
+    flex: 0 0 auto;
+}
+.cam-row > select {
+    flex: 1;
+    background: #2a2a2a;
+    color: #eee;
+    border: 1px solid #555;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: 12px;
+    text-shadow: none;
+}
+
+.cam-section-title {
+    margin-top: 8px;
+    padding-top: 4px;
+    border-top: 1px solid #333;
+    font-weight: 600;
+    color: #aaa;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+#cam-reset-btn {
+    width: 100%;
+    margin-top: 10px;
+    padding: 6px 10px;
+    font-size: 12px;
+}
+
+#confirm-bar {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 10;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+#help-panel {
+    position: absolute;
+    bottom: 10px;
+    left: 12px;
+    z-index: 10;
+    max-width: 360px;
+    font-size: 12px;
+    color: #ddd;
+}
+#help-panel details {
+    background: rgba(0,0,0,0.55);
+    border: 1px solid #444;
+    border-radius: 6px;
+    padding: 6px 10px;
+}
+#help-panel summary { cursor: pointer; user-select: none; }
+#help-panel .help-body { margin-top: 8px; line-height: 1.5; }
+
+.muted { color: #aaa; font-size: 12px; }
+
+/* ---------- Buttons ---------- */
+
+button {
+    background: #2a2a2a;
+    color: #eee;
+    border: 1px solid #555;
+    padding: 8px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    text-shadow: none;
+}
+button:hover  { background: #3a3a3a; border-color: #777; }
+button:active { background: #1f1f1f; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+#select-toggle-btn.active {
+    background: #b33;
+    border-color: #d55;
+}
+#select-toggle-btn.active:hover { background: #c44; }
+
+#confirm-and-close-btn {
+    background: #2d7d46;
+    border-color: #2d7d46;
+    color: white;
+}
+#confirm-and-close-btn:hover { background: #36994f; }
+
+/* ---------- Crop overlay ---------- */
+
+#crop-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;     /* events go through to canvas (we listen on canvas) */
+    z-index: 5;
+}
+.crop-mask {
+    position: absolute;
+    background: rgba(0, 0, 0, 0.45);
+}
+#crop-rect {
+    position: absolute;
+    border: 2px solid rgba(255, 60, 60, 0.95);
+    background: rgba(255, 0, 0, 0.18);
+    box-sizing: border-box;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.5);
+}
+
+/* ---------- Progress / spinner ---------- */
+
+#progress {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 4px;
+    background: #4ea1ff;
+    z-index: 100;
+    transition: width 0.1s ease-in-out;
+}
+#message {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 50;
+    background: rgba(0,0,0,0.7);
+    border: 1px solid #c33;
+    color: #ff8a8a;
+    padding: 12px 18px;
+    border-radius: 6px;
+    font-weight: 600;
+    max-width: 70%;
+    text-align: center;
+}

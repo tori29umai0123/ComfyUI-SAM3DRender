@@ -1,0 +1,22 @@
+ComfyUI-SAM3DRender — Combined License Notice
+==============================================
+
+This project is a derivative work that inherits its license terms from
+two upstream sources:
+
+1. WebGL Gaussian Splatting viewer (web/editor/static/main.js, etc.)
+   Adapted from antimatter15/splat (Kevin Kwok), MIT License.
+   See LICENSE.splat for the full text.
+
+2. SAM 3D Objects pipeline (depth → PLY logic in nodes/sam3d/)
+   Reimplemented against the upstream SAM 3D Objects API
+   (Meta Platforms). Use of the SAM 3D models and any code derived
+   from sam-3d-objects is governed by the SAM License.
+   See LICENSE.SAM for the full text.
+
+By using or distributing this project you agree to both licenses
+above. Redistribution must preserve the LICENSE.splat and LICENSE.SAM
+files alongside this LICENSE notice.
+
+Files specific to this project (not derived from either upstream)
+are released under the MIT terms in LICENSE.splat for consistency.
